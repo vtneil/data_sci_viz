@@ -32,7 +32,7 @@ class App:
         suppress_callback_exceptions=True,
         title=APP_TITLE,
         update_title=None,
-        external_stylesheets=[dbc.themes.DARKLY]
+        external_stylesheets=[dbc.themes.BOOTSTRAP]
     )
 
     def __init__(self, path: str) -> None:
@@ -44,27 +44,62 @@ class App:
     def __setup_data(self, path: str) -> None:
         self.raw_data = PaperFactory.many_from_json(path)
 
+        flatten_rows = []
         heatmap_rows = []
         arc_rows = []
+
+        row_titles = ['id', 'title', 'year']
 
         for sid, data in self.raw_data.items():
             affiliations = data['affiliations']
 
-            heatmap_rows.extend([(
-                float(aff['location']['lat']),
-                float(aff['location']['lng']),
-                1
-            ) for aff in affiliations])
+            row_data = (
+                data['SCOPUSID'],
+                data['title'],
+                int(data['publish_year'])
+            )
 
-            arc_rows.extend([(
-                float(aff1['location']['lat']),
-                float(aff1['location']['lng']),
-                float(aff2['location']['lat']),
-                float(aff2['location']['lng']),
-            ) for (aff1, aff2) in itertools.combinations(affiliations, 2)])
+            flatten_rows.append(row_data)
 
-        self.df_heatmap = pd.DataFrame(heatmap_rows, columns=['lat', 'lng', 'weight'])
-        self.df_arc = pd.DataFrame(arc_rows, columns=['lat1', 'lng1', 'lat2', 'lng2'])
+            heatmap_rows.extend([
+                (
+                    *row_data,
+                    aff['country'],
+                    float(aff['location']['lat']),
+                    float(aff['location']['lng']),
+                    1
+                )
+                for aff in affiliations
+            ])
+
+            arc_rows.extend([
+                (
+                    *row_data,
+                    aff1['country'],
+                    aff2['country'],
+                    float(aff1['location']['lat']),
+                    float(aff1['location']['lng']),
+                    float(aff2['location']['lat']),
+                    float(aff2['location']['lng']),
+                )
+                for aff1, aff2 in itertools.combinations(affiliations, 2)
+                if aff1['name'] != aff2['name']
+            ])
+
+        self.df_flatten = pd.DataFrame(
+            flatten_rows,
+            columns=row_titles
+        ).set_index('id')
+
+        self.df_heatmap = pd.DataFrame(
+            heatmap_rows,
+            columns=[*row_titles, 'country', 'lat', 'lng', 'weight']
+        ).set_index('id')
+
+        self.df_arc = pd.DataFrame(
+            arc_rows,
+            columns=[*row_titles, 'country1', 'country2', 'lat1', 'lng1', 'lat2', 'lng2']
+        ).set_index('id')
 
     def __setup_components(self) -> None:
         self.view_state = pdk.ViewState(
@@ -101,13 +136,14 @@ class App:
         self.init_enable_layers = ['map_heatmap_2d']
 
     def __setup_dash(self) -> None:
+        a, b = self.df_flatten['year'].min(), self.df_flatten['year'].max()
         row_height = '720px'
 
         def map_container():
             return html.Div(
                 dash_deck.DeckGL(
                     id='map',
-                    data=self.render_map(self.init_enable_layers),
+                    data=self.render_map(self.init_enable_layers, (a, b)),
                     mapboxKey=MAPBOX_API_KEY
                 ),
                 style={
@@ -126,16 +162,20 @@ class App:
                         {'label': 'Arc Plot', 'value': 'map_arc'}
                     ],
                     value=self.init_enable_layers
-                ),
+                )
+            )
+
+        def data_container():
+            return html.Div(
                 style={
                     'height': row_height
                 }
             )
 
         def year_selector_container():
-            a, b = 2014, 2024
             return html.Div(
                 dcc.RangeSlider(
+                    id='year-selector',
                     min=a,
                     max=b,
                     step=None,
@@ -143,23 +183,48 @@ class App:
                         v: f'{v}'
                         for v in list(range(a, b + 1))
                     },
-                    value=[2019, 2023]
+                    value=[a, b]
+                )
+            )
+
+        def country_selector_container():
+            return html.Div(
+                dcc.Dropdown(
+                    id='country-selector',
+                    placeholder='(All)',
+                    options=['A', 'B'],
+                    multi=True
                 )
             )
 
         self.app.layout = html.Div(
             dbc.Container([
+                # Title
                 dbc.Row([
-                    html.Center(html.H1(APP_TITLE)),
+                    html.Center(html.H1(html.Strong(APP_TITLE))),
                 ]),
                 html.Br(),
+
+                # Row 1: Selector/filter, Map, Free Panel
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Layer Selector')),
-                            dbc.CardBody(layer_selector_container()),
-                        ]),
-                        width=4
+                            dbc.CardHeader(html.Strong('Data and Layers')),
+                            dbc.CardBody(
+                                html.Div([
+                                    html.Strong('Layer selector'),
+                                    layer_selector_container(),
+                                    html.Br(),
+                                    html.Strong('Filter by year'),
+                                    year_selector_container(),
+                                    html.Br(),
+                                    html.Strong('Filter by countries'),
+                                    country_selector_container(),
+                                ], style={
+                                    'height': row_height
+                                })
+                            ),
+                        ]), width=2,
                     ),
                     dbc.Col(
                         dbc.Card([
@@ -167,17 +232,64 @@ class App:
                             dbc.CardBody(map_container()),
                         ]),
                     ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(data_container()),
+                        ]),
+                        width=3
+                    ),
                 ]),
                 html.Br(),
+
+                # Row 2:
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Select the data range by year')),
-                            dbc.CardBody(year_selector_container()),
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
                         ]),
                     ),
                 ]),
-            ]), style={
+                html.Br(),
+
+                # Row 3:
+                dbc.Row([
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                ]),
+                html.Br(),
+            ], fluid=True, style={
+                'width': '100%'
+            }), style={
                 'padding': '36px',
                 'font-size': '20px'
             }
@@ -189,20 +301,31 @@ class App:
                    component_property='data'),
             Input(component_id='map-selector',
                   component_property='value'),
+            Input(component_id='year-selector',
+                  component_property='value'),
         )
-        def update_map(selected_layers: list[str]):
-            return self.render_map(selected_layers)
+        def update_map(selected_layers: list[str],
+                       year_range: tuple[int, int]):
+            return self.render_map(selected_layers, year_range)
 
-    def render_map(self, layers: list[str]) -> str:
+    def render_map(self, layers: list[str],
+                   year_range: tuple[int, int]) -> str:
         for name, layer in self.map_layers.items():
             if name in layers:
                 layer.visible = True
             else:
                 layer.visible = False
 
+        filter_pos = self.df_heatmap['year'].between(year_range[0], year_range[1])
+        self.map_layers['map_heatmap_2d'].data = self.df_heatmap[filter_pos]
+
+        filter_pos = self.df_arc['year'].between(year_range[0], year_range[1])
+        self.map_layers['map_arc'].data = self.df_arc[filter_pos]
+
         r = pdk.Deck(
             layers=list(self.map_layers.values()),
-            initial_view_state=self.view_state
+            initial_view_state=self.view_state,
+            map_style='light'
         )
 
         return r.to_json()

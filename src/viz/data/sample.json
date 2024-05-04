@@ -95,5 +95,37 @@
       "G H"
     ],
     "publish_year": "2020"
+  },
+  "004": {
+    "SCOPUSID": "004",
+    "title": "Title 004",
+    "affiliations": [
+      {
+        "name": "Chulalongkorn University",
+        "location": {
+          "lat": "13.736567",
+          "lng": "100.532300"
+        },
+        "city": "Bangkok",
+        "country": "Thailand"
+      },
+      {
+        "name": "Chiang Mai University",
+        "location": {
+          "lat": "18.807917",
+          "lng": "98.955141"
+        },
+        "city": "Bangkok",
+        "country": "Thailand"
+      }
+    ],
+    "abbrevs": [
+      ""
+    ],
+    "authors": [
+      "A B",
+      "G H"
+    ],
+    "publish_year": "2026"
   }
 }
