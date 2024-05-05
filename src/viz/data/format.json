@@ -1,22 +1,3 @@
-{
-  "SCOPUSID": "",
-  "title": "",
-  "affiliations": [
-    {
-      "name": "",
-      "location": {
-        "lat": "",
-        "lng": ""
-      },
-      "city": "",
-      "country": ""
-    }
-  ],
-  "abbrevs": [
-    ""
-  ],
-  "authors": [
-    ""
-  ],
-  "publish_year": ""
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:1545c7a1d5ea7ea6cfca9b95595cfb275041c58e2c537d168e049387aa0b4a64
+size 270
