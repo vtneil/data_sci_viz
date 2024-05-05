@@ -11,6 +11,8 @@ authors = [
     { name = "Pipat Jongpipatchai" },
 ]
 dependencies = [
+    "orjson",
+    "ujson",
     "numpy",
     "pandas",
     "matplotlib",

@@ -36,31 +36,37 @@ class App:
     )
 
     def __init__(self, path: str) -> None:
+        print('Setting up data...')
         self.__setup_data(path)
+        print('Setting up components...')
         self.__setup_components()
+        print('Setting up Dash...')
         self.__setup_dash()
+        print('Setting up callbacks...')
         self.__setup_callbacks()
+        print('App is set up!')
 
     def __setup_data(self, path: str) -> None:
-        self.raw_data = PaperFactory.many_from_json(path)
+        self.raw_data = PaperFactory.many_from_json(path, 10)
 
         flatten_rows = []
         heatmap_rows = []
         arc_rows = []
+        arc_lookup: set[tuple[str, str, int]] = set()
 
         row_titles = ['id', 'title', 'year']
 
-        for sid, data in self.raw_data.items():
-            affiliations = data['affiliations']
+        for paper_entry in self.raw_data:
+            sid = paper_entry['SCOPUSID']
+            title = paper_entry['title']
+            year = int(paper_entry['publish_year'])
+            affiliations = paper_entry['affiliations']
+            row_data = (sid, title, year)
 
-            row_data = (
-                data['SCOPUSID'],
-                data['title'],
-                int(data['publish_year'])
-            )
-
+            # Flatten data
             flatten_rows.append(row_data)
 
+            # Heatmap data
             heatmap_rows.extend([
                 (
                     *row_data,
@@ -72,19 +78,35 @@ class App:
                 for aff in affiliations
             ])
 
-            arc_rows.extend([
-                (
-                    *row_data,
-                    aff1['country'],
-                    aff2['country'],
-                    float(aff1['location']['lat']),
-                    float(aff1['location']['lng']),
-                    float(aff2['location']['lat']),
-                    float(aff2['location']['lng']),
+            # Arc data
+            for aff1, aff2 in itertools.combinations(affiliations, 2):
+                if aff1['name'] == aff2['name']:
+                    continue
+
+                loc_f = (aff1['name'], aff2['name'], year)
+                loc_b = (aff2['name'], aff1['name'], year)
+
+                if loc_f in arc_lookup:
+                    continue
+
+                arc_lookup.add(loc_f)
+                arc_lookup.add(loc_b)
+
+                arc_rows.append(
+                    (
+                        year,
+                        aff1['name'],
+                        aff1['city'],
+                        aff1['country'],
+                        float(aff1['location']['lat']),
+                        float(aff1['location']['lng']),
+                        aff2['name'],
+                        aff2['city'],
+                        aff2['country'],
+                        float(aff2['location']['lat']),
+                        float(aff2['location']['lng']),
+                    )
                 )
-                for aff1, aff2 in itertools.combinations(affiliations, 2)
-                if aff1['name'] != aff2['name']
-            ])
 
         self.df_flatten = pd.DataFrame(
             flatten_rows,
@@ -98,16 +120,17 @@ class App:
 
         self.df_arc = pd.DataFrame(
             arc_rows,
-            columns=[*row_titles, 'country1', 'country2', 'lat1', 'lng1', 'lat2', 'lng2']
-        ).set_index('id')
+            columns=['year',
+                     'name1', 'city1', 'country1', 'lat1', 'lng1',
+                     'name2', 'city2', 'country2', 'lat2', 'lng2'
+                     ]
+        )
 
     def __setup_components(self) -> None:
         self.view_state = pdk.ViewState(
             longitude=100.532300,
             latitude=13.736567,
             zoom=6,
-            min_zoom=2,
-            max_zoom=15,
             pitch=40.5)
 
         self.map_layers: dict[str, pdk.Layer] = {
@@ -143,7 +166,7 @@ class App:
             return html.Div(
                 dash_deck.DeckGL(
                     id='map',
-                    data=self.render_map(self.init_enable_layers, (a, b)),
+                    data=self.render_map(self.init_enable_layers, (a, b), []),
                     mapboxKey=MAPBOX_API_KEY
                 ),
                 style={
@@ -192,7 +215,7 @@ class App:
                 dcc.Dropdown(
                     id='country-selector',
                     placeholder='(All)',
-                    options=['A', 'B'],
+                    options=self.df_heatmap['country'].unique(),
                     multi=True
                 )
             )
@@ -303,13 +326,20 @@ class App:
                   component_property='value'),
             Input(component_id='year-selector',
                   component_property='value'),
+            Input(component_id='country-selector',
+                  component_property='value')
         )
         def update_map(selected_layers: list[str],
-                       year_range: tuple[int, int]):
-            return self.render_map(selected_layers, year_range)
+                       year_range: tuple[int, int],
+                       countries: list[str]):
+            print('Updating map...')
+            m = self.render_map(selected_layers, year_range, countries)
+            print('Map updated!')
+            return m
 
     def render_map(self, layers: list[str],
-                   year_range: tuple[int, int]) -> str:
+                   year_range: tuple[int, int],
+                   countries: list[str]) -> str:
         for name, layer in self.map_layers.items():
             if name in layers:
                 layer.visible = True
@@ -317,9 +347,15 @@ class App:
                 layer.visible = False
 
         filter_pos = self.df_heatmap['year'].between(year_range[0], year_range[1])
+        if countries:
+            filter_pos = filter_pos & self.df_heatmap['country'].isin(countries)
         self.map_layers['map_heatmap_2d'].data = self.df_heatmap[filter_pos]
 
         filter_pos = self.df_arc['year'].between(year_range[0], year_range[1])
+        if countries:
+            filter_pos = filter_pos & (
+                    self.df_arc['country1'].isin(countries) | self.df_arc['country2'].isin(countries)
+            )
         self.map_layers['map_arc'].data = self.df_arc[filter_pos]
 
         r = pdk.Deck(
@@ -346,5 +382,5 @@ class App:
 
 
 if __name__ == '__main__':
-    with App('./data/sample.json') as app:
+    with App('./data/papers.json') as app:
         app.start()

@@ -1,6 +1,7 @@
-import json
+import ujson as json
+import time
 from pprint import pprint
-from typing import TypedDict, List, AnyStr, Dict
+from typing import TypedDict, List, AnyStr, Tuple
 
 
 class Location(TypedDict):
@@ -24,7 +25,7 @@ class Paper(TypedDict):
     publish_year: AnyStr
 
 
-PaperEntries = Dict[AnyStr, Paper]
+PaperEntries = Tuple[Paper]
 
 
 class PaperFactory:
@@ -35,15 +36,23 @@ class PaperFactory:
         return data
 
     @staticmethod
-    def many_from_json(path: AnyStr) -> PaperEntries:
-        with open(path, mode='r') as fro:
-            data = json.load(fro)
-        return data
+    def many_from_json(path: AnyStr, count: int = -1) -> PaperEntries:
+        with open(path, mode='r', encoding='utf-8') as fro:
+            raw = json.load(fro)
+        if count < 0:
+            return tuple(raw['all_paper_with_loc'])
+        else:
+            return tuple(raw['all_paper_with_loc'][:count])
 
 
 if __name__ == '__main__':
-    p1 = PaperFactory.from_json('../data/format.json')
-    p2 = PaperFactory.many_from_json('../data/sample.json')
+    # p1 = PaperFactory.from_json('../data/format.json')
+    # pprint(p1)
+    t = time.time()
+    p2 = PaperFactory.many_from_json('../data/papers.json', 10)
+    print(time.time() - t)
 
-    pprint(p1)
-    pprint(p2)
+    print(len(p2))
+    s = sum(len(p['affiliations']) * (len(p['affiliations']) - 1) for p in p2)
+    print(s)
+    # pprint(p2)
