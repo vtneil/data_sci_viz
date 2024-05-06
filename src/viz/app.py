@@ -6,8 +6,10 @@ import plotly.graph_objs as go
 import dash
 import dash_deck
 import dash_bootstrap_components as dbc
+import networkx as nx
 
 from dash import html, dcc, Input, Output
+from matplotlib import pyplot as plt
 from pydeck.types import String as PdkString
 
 from src.viz.deps.types import Paper, PaperFactory
@@ -56,7 +58,9 @@ class App:
 
     def __init__(self, path: str) -> None:
         print('Setting up data...')
+        self.raw_data = PaperFactory.many_from_json(path, 10_000)
         self.__setup_data(path)
+        self.__setup_network()
         print('Setting up components...')
         self.__setup_components()
         print('Setting up Dash...')
@@ -67,8 +71,6 @@ class App:
 
     @benchmark
     def __setup_data(self, path: str) -> None:
-        self.raw_data = PaperFactory.many_from_json(path, 3000)
-
         flatten_rows = []
         heatmap_rows = []
         arc_rows = []
@@ -147,6 +149,30 @@ class App:
                      'name2', 'city2', 'country2', 'lat2', 'lng2'
                      ]
         ).dropna()
+
+    @benchmark
+    def __setup_network(self) -> None:
+        institution_graph = nx.Graph()
+        country_graph = nx.Graph()
+
+        # for (k, paper_entry) in enumerate(self.raw_data):
+        #     institutions = [aff['name'] for aff in paper_entry['affiliations']]
+        #     for i in range(len(institutions)):
+        #         for j in range(i + 1, len(institutions)):
+        #             if institutions[i] and institutions[j]:
+        #                 institution_graph.add_edge(institutions[i], institutions[j])
+
+        for (k, paper_entry) in enumerate(self.raw_data):
+            countries = list(set([aff['country'] for aff in paper_entry['affiliations']]))
+            for i in range(len(countries)):
+                for j in range(i + 1, len(countries)):
+                    if countries[i] and countries[j]:
+                        country_graph.add_edge(countries[i], countries[j])
+
+        self.graphs = {
+            'institution': institution_graph,
+            'country': country_graph
+        }
 
     @benchmark
     def __setup_components(self) -> None:
@@ -282,6 +308,18 @@ class App:
                 }
             )
 
+        def network_country_container():
+            return html.Div(
+                dcc.Graph(id='network-country',
+                          figure=self.get_network_graph(self.graphs['country']),
+                          style={
+                              'height': '100%'
+                          }, config={'scrollZoom': True}),
+                style={
+                    'height': row_height
+                }
+            )
+
         sidebar = html.Div(
             [
                 html.H2('Data and Layers'),
@@ -332,6 +370,12 @@ class App:
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
+                            dbc.CardHeader(html.Strong('Country network')),
+                            dbc.CardBody(network_country_container()),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
                             dbc.CardHeader(html.Strong('Number of publications over time')),
                             dbc.CardBody(num_pub_year_container()),
                         ]),
@@ -340,29 +384,6 @@ class App:
                         dbc.Card([
                             dbc.CardHeader(html.Strong('Number of international collaborations over time')),
                             dbc.CardBody(num_collab_year_container()),
-                        ]),
-                    ),
-                ]),
-                html.Br(),
-
-                # Row 3:
-                dbc.Row([
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
                         ]),
                     ),
                 ]),
@@ -438,7 +459,7 @@ class App:
 
         r = pdk.Deck(
             layers=[self.map_layers[k] for k in self.init_enable_layers],
-            # layers=list(self.map_layers.values()),
+            # layers=list(self.map_layers.values()), #  todo: FIX!
             initial_view_state=self.view_state,
             map_style='light'
         )
@@ -501,6 +522,73 @@ class App:
         fig = px.sunburst(df_count, path=['country', 'city', 'name'], values='publications')
         fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
 
+        return fig
+
+    @staticmethod
+    def get_network_graph(graph: nx.Graph):
+        pos = nx.kamada_kawai_layout(graph)
+        edge_x = []
+        edge_y = []
+
+        for edge in graph.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+
+            edge_x.append(x0)
+            edge_x.append(x1)
+            edge_x.append(None)
+            edge_y.append(y0)
+            edge_y.append(y1)
+            edge_y.append(None)
+
+        edge_trace = go.Scatter(
+            x=edge_x, y=edge_y,
+            line=dict(width=0.5, color='#888'),
+            hoverinfo='none',
+            mode='lines')
+
+        node_x = []
+        node_y = []
+        for node in graph.nodes():
+            x, y = pos[node]
+            node_x.append(x)
+            node_y.append(y)
+
+        node_trace = go.Scatter(
+            x=node_x, y=node_y,
+            mode='markers',
+            hoverinfo='text',
+            marker=dict(
+                showscale=True,
+                colorscale='YlGnBu',
+                reversescale=True,
+                color=[],
+                size=10,
+                colorbar=dict(
+                    thickness=15,
+                    title='Node Connections',
+                    xanchor='left',
+                    titleside='right'
+                ),
+                line_width=2))
+
+        node_adjacencies = []
+        node_text = []
+        for node, adjacencies in enumerate(graph.adjacency()):
+            node_adjacencies.append(len(adjacencies[1]))
+            node_text.append(f'{adjacencies[0]} has {len(adjacencies[1])} connections.')
+
+        node_trace.marker.color = node_adjacencies
+        node_trace.text = node_text
+
+        fig = go.Figure(data=[edge_trace, node_trace],
+                        layout=go.Layout(
+                            showlegend=False,
+                            hovermode='closest',
+                            margin=dict(b=20, l=5, r=5, t=40),
+                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                        )
         return fig
 
     def start(self) -> None:

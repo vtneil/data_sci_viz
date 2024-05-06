@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = 'viz'
-version = '0.1.0'
+version = '0.2.0'
 authors = [
     { name = "Vivatsathorn Thitasirivit", email = "vivatsathorn@outlook.co.th" },
     { name = "Theerin Petcharat" },
@@ -14,6 +14,7 @@ dependencies = [
     "orjson",
     "ujson",
     "numpy",
+    "scipy",
     "pandas",
     "matplotlib",
     "pydot",
@@ -22,7 +23,8 @@ dependencies = [
     "dash",
     "dash-deck",
     "dash-bootstrap-components",
-    "pydeck"
+    "pydeck",
+    "networkx"
 ]
 description = "Data Sci Project: Visualization"
 keywords = ["datasci", "visualization"]
