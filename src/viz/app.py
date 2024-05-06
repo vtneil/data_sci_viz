@@ -1,6 +1,8 @@
 import itertools
 import pandas as pd
 import pydeck as pdk
+import plotly.express as px
+import plotly.graph_objs as go
 import dash
 import dash_deck
 import dash_bootstrap_components as dbc
@@ -9,6 +11,7 @@ from dash import html, dcc, Input, Output
 from pydeck.types import String as PdkString
 
 from src.viz.deps.types import Paper, PaperFactory
+from src.viz.deps.utils import benchmark
 
 # App attributes
 APP_NAME = 'SCOPUS Visualization'
@@ -46,8 +49,9 @@ class App:
         self.__setup_callbacks()
         print('App is set up!')
 
+    @benchmark
     def __setup_data(self, path: str) -> None:
-        self.raw_data = PaperFactory.many_from_json(path, 10)
+        self.raw_data = PaperFactory.many_from_json(path, 500)
 
         flatten_rows = []
         heatmap_rows = []
@@ -68,13 +72,13 @@ class App:
 
             # Heatmap data
             heatmap_rows.extend([
-                (
+                [
                     *row_data,
                     aff['country'],
                     float(aff['location']['lat']),
                     float(aff['location']['lng']),
                     1
-                )
+                ]
                 for aff in affiliations
             ])
 
@@ -93,7 +97,7 @@ class App:
                 arc_lookup.add(loc_b)
 
                 arc_rows.append(
-                    (
+                    [
                         year,
                         aff1['name'],
                         aff1['city'],
@@ -105,7 +109,7 @@ class App:
                         aff2['country'],
                         float(aff2['location']['lat']),
                         float(aff2['location']['lng']),
-                    )
+                    ]
                 )
 
         self.df_flatten = pd.DataFrame(
@@ -126,6 +130,7 @@ class App:
                      ]
         )
 
+    @benchmark
     def __setup_components(self) -> None:
         self.view_state = pdk.ViewState(
             longitude=100.532300,
@@ -158,8 +163,10 @@ class App:
 
         self.init_enable_layers = ['map_heatmap_2d']
 
+    @benchmark
     def __setup_dash(self) -> None:
         a, b = self.df_flatten['year'].min(), self.df_flatten['year'].max()
+        countries = self.df_heatmap['country'].unique()
         row_height = '720px'
 
         def map_container():
@@ -215,9 +222,21 @@ class App:
                 dcc.Dropdown(
                     id='country-selector',
                     placeholder='(All)',
-                    options=self.df_heatmap['country'].unique(),
+                    options=countries,
                     multi=True
                 )
+            )
+
+        def num_collab_container():
+            return html.Div(
+                dcc.Graph(id='collaborations-year',
+                          figure=self.get_plot_data((a, b), []),
+                          style={
+                              'height': '100%'
+                          }),
+                style={
+                    'height': row_height
+                }
             )
 
         self.app.layout = html.Div(
@@ -257,8 +276,8 @@ class App:
                     ),
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(data_container()),
+                            dbc.CardHeader(html.Strong('Number of collaborations over time')),
+                            dbc.CardBody(num_collab_container()),
                         ]),
                         width=3
                     ),
@@ -267,18 +286,6 @@ class App:
 
                 # Row 2:
                 dbc.Row([
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
                     dbc.Col(
                         dbc.Card([
                             dbc.CardHeader(html.Strong('Free Panel')),
@@ -310,6 +317,29 @@ class App:
                     ),
                 ]),
                 html.Br(),
+
+                # Row 4:
+                dbc.Row([
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Free Panel')),
+                            dbc.CardBody(),
+                        ]),
+                    ),
+                ]),
+                html.Br(),
             ], fluid=True, style={
                 'width': '100%'
             }), style={
@@ -318,10 +348,13 @@ class App:
             }
         )
 
+    @benchmark
     def __setup_callbacks(self) -> None:
         @self.app.callback(
             Output(component_id='map',
                    component_property='data'),
+            Output(component_id='collaborations-year',
+                   component_property='figure'),
             Input(component_id='map-selector',
                   component_property='value'),
             Input(component_id='year-selector',
@@ -329,13 +362,16 @@ class App:
             Input(component_id='country-selector',
                   component_property='value')
         )
-        def update_map(selected_layers: list[str],
-                       year_range: tuple[int, int],
-                       countries: list[str]):
-            print('Updating map...')
+        def update_data(selected_layers: list[str],
+                        year_range: tuple[int, int],
+                        countries: list[str]):
+            print('Updating data...')
+
             m = self.render_map(selected_layers, year_range, countries)
-            print('Map updated!')
-            return m
+            c = self.get_plot_data(year_range, countries)
+
+            print('Data updated!')
+            return m, c
 
     def render_map(self, layers: list[str],
                    year_range: tuple[int, int],
@@ -365,6 +401,18 @@ class App:
         )
 
         return r.to_json()
+
+    def get_plot_data(self, year_range: tuple[int, int],
+                      countries: list[str]):
+        if countries:
+            filtered_df = self.df_heatmap[self.df_heatmap['country'].isin(countries)]
+        else:
+            filtered_df = self.df_heatmap
+
+        gp = filtered_df.groupby(['year']).size().reset_index(name='collaborations')
+        fig = px.line(gp, x='year', y='collaborations', markers=True)
+        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+        return fig
 
     def start(self) -> None:
         self.app.run(host='localhost',
