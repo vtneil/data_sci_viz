@@ -25,6 +25,22 @@ MAPBOX_API_KEY = 'pk.eyJ1IjoibmVpbDQ4ODQiLCJhIjoiY2txZmZqbXk3MXR4aTJzcXRtanZvbmR
 GREEN_RGB = [0, 255, 0, 40]
 RED_RGB = [240, 100, 0, 40]
 
+SIDEBAR_SIZE = 24  # rem
+
+SIDEBAR_STYLE = {
+    'position': 'fixed',
+    'top': 0,
+    'left': 0,
+    'bottom': 0,
+    'width': f'{SIDEBAR_SIZE}rem',
+    'padding': '2rem 1rem',
+    'background-color': '#f8f9fa',
+}
+
+CONTENT_STYLE = {
+    'margin-left': f'{SIDEBAR_SIZE + 2}rem',
+}
+
 
 class App:
     app = dash.Dash(
@@ -51,7 +67,7 @@ class App:
 
     @benchmark
     def __setup_data(self, path: str) -> None:
-        self.raw_data = PaperFactory.many_from_json(path, 500)
+        self.raw_data = PaperFactory.many_from_json(path, 3000)
 
         flatten_rows = []
         heatmap_rows = []
@@ -74,6 +90,8 @@ class App:
             heatmap_rows.extend([
                 [
                     *row_data,
+                    aff['name'],
+                    aff['city'],
                     aff['country'],
                     float(aff['location']['lat']),
                     float(aff['location']['lng']),
@@ -98,7 +116,7 @@ class App:
 
                 arc_rows.append(
                     [
-                        year,
+                        *row_data,
                         aff1['name'],
                         aff1['city'],
                         aff1['country'],
@@ -119,16 +137,16 @@ class App:
 
         self.df_heatmap = pd.DataFrame(
             heatmap_rows,
-            columns=[*row_titles, 'country', 'lat', 'lng', 'weight']
-        ).set_index('id')
+            columns=[*row_titles, 'name', 'city', 'country', 'lat', 'lng', 'weight']
+        ).dropna()
 
         self.df_arc = pd.DataFrame(
             arc_rows,
-            columns=['year',
+            columns=[*row_titles,
                      'name1', 'city1', 'country1', 'lat1', 'lng1',
                      'name2', 'city2', 'country2', 'lat2', 'lng2'
                      ]
-        )
+        ).dropna()
 
     @benchmark
     def __setup_components(self) -> None:
@@ -147,11 +165,12 @@ class App:
                 get_weight='weight',
                 aggregation=PdkString('MEAN')
             ),
-            'map_arc': pdk.Layer(
+            'map_arc': pdk.Layer('ArcLayer'),
+            'map_arc0': pdk.Layer(
                 'ArcLayer',
                 data=self.df_arc,
-                get_source_position=["lng1", "lat1"],
-                get_target_position=["lng2", "lat2"],
+                get_source_position=['lng1', 'lat1'],
+                get_target_position=['lng2', 'lat2'],
                 get_width='10',
                 get_tilt=0,
                 get_source_color=RED_RGB,
@@ -166,14 +185,14 @@ class App:
     @benchmark
     def __setup_dash(self) -> None:
         a, b = self.df_flatten['year'].min(), self.df_flatten['year'].max()
-        countries = self.df_heatmap['country'].unique()
+        countries = sorted(self.df_heatmap['country'].unique())
         row_height = '720px'
 
         def map_container():
             return html.Div(
                 dash_deck.DeckGL(
                     id='map',
-                    data=self.render_map(self.init_enable_layers, (a, b), []),
+                    data=self.get_render_map(self.init_enable_layers, (a, b), []),
                     mapboxKey=MAPBOX_API_KEY
                 ),
                 style={
@@ -227,10 +246,10 @@ class App:
                 )
             )
 
-        def num_collab_container():
+        def num_collab_year_container():
             return html.Div(
                 dcc.Graph(id='collaborations-year',
-                          figure=self.get_plot_data((a, b), []),
+                          figure=self.get_collaborations_year([]),
                           style={
                               'height': '100%'
                           }),
@@ -239,7 +258,51 @@ class App:
                 }
             )
 
-        self.app.layout = html.Div(
+        def num_pub_year_container():
+            return html.Div(
+                dcc.Graph(id='publications-year',
+                          figure=self.get_publications_year([]),
+                          style={
+                              'height': '100%'
+                          }),
+                style={
+                    'height': row_height
+                }
+            )
+
+        def sunburst_container():
+            return html.Div(
+                dcc.Graph(id='publications-sunburst',
+                          figure=self.get_sunburst((a, b), []),
+                          style={
+                              'height': '100%'
+                          }),
+                style={
+                    'height': row_height
+                }
+            )
+
+        sidebar = html.Div(
+            [
+                html.H2('Data and Layers'),
+                html.Hr(),
+                html.Div([
+                    html.Strong('Layer selector'),
+                    layer_selector_container(),
+                    html.Br(),
+                    html.Strong('Filter by year'),
+                    year_selector_container(),
+                    html.Br(),
+                    html.Strong('Filter by countries'),
+                    country_selector_container(),
+                ], style={
+                    'height': row_height
+                })
+            ],
+            style=SIDEBAR_STYLE,
+        )
+
+        content = html.Div(
             dbc.Container([
                 # Title
                 dbc.Row([
@@ -251,35 +314,16 @@ class App:
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Data and Layers')),
-                            dbc.CardBody(
-                                html.Div([
-                                    html.Strong('Layer selector'),
-                                    layer_selector_container(),
-                                    html.Br(),
-                                    html.Strong('Filter by year'),
-                                    year_selector_container(),
-                                    html.Br(),
-                                    html.Strong('Filter by countries'),
-                                    country_selector_container(),
-                                ], style={
-                                    'height': row_height
-                                })
-                            ),
-                        ]), width=2,
-                    ),
-                    dbc.Col(
-                        dbc.Card([
                             dbc.CardHeader(html.Strong('Map Visualization')),
                             dbc.CardBody(map_container()),
                         ]),
                     ),
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Number of collaborations over time')),
-                            dbc.CardBody(num_collab_container()),
+                            dbc.CardHeader(html.Strong('Number of publications by institution')),
+                            dbc.CardBody(sunburst_container()),
                         ]),
-                        width=3
+                        width=4
                     ),
                 ]),
                 html.Br(),
@@ -288,8 +332,14 @@ class App:
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
+                            dbc.CardHeader(html.Strong('Number of publications over time')),
+                            dbc.CardBody(num_pub_year_container()),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Number of international collaborations over time')),
+                            dbc.CardBody(num_collab_year_container()),
                         ]),
                     ),
                 ]),
@@ -317,36 +367,22 @@ class App:
                     ),
                 ]),
                 html.Br(),
-
-                # Row 4:
-                dbc.Row([
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
-                            dbc.CardHeader(html.Strong('Free Panel')),
-                            dbc.CardBody(),
-                        ]),
-                    ),
-                ]),
-                html.Br(),
             ], fluid=True, style={
                 'width': '100%'
             }), style={
+                **CONTENT_STYLE,
                 'padding': '36px',
                 'font-size': '20px'
             }
         )
+
+        self.app.layout = html.Div([
+            # Sidebar
+            sidebar,
+
+            # Content
+            content
+        ])
 
     @benchmark
     def __setup_callbacks(self) -> None:
@@ -354,6 +390,10 @@ class App:
             Output(component_id='map',
                    component_property='data'),
             Output(component_id='collaborations-year',
+                   component_property='figure'),
+            Output(component_id='publications-year',
+                   component_property='figure'),
+            Output(component_id='publications-sunburst',
                    component_property='figure'),
             Input(component_id='map-selector',
                   component_property='value'),
@@ -367,15 +407,17 @@ class App:
                         countries: list[str]):
             print('Updating data...')
 
-            m = self.render_map(selected_layers, year_range, countries)
-            c = self.get_plot_data(year_range, countries)
+            map_rendered = self.get_render_map(selected_layers, year_range, countries)
+            collaborations_year = self.get_collaborations_year(countries)
+            publications_year = self.get_publications_year(countries)
+            sunburst = self.get_sunburst(year_range, countries)
 
             print('Data updated!')
-            return m, c
+            return map_rendered, collaborations_year, publications_year, sunburst
 
-    def render_map(self, layers: list[str],
-                   year_range: tuple[int, int],
-                   countries: list[str]) -> str:
+    def get_render_map(self, layers: list[str],
+                       year_range: tuple[int, int],
+                       countries: list[str]) -> str:
         for name, layer in self.map_layers.items():
             if name in layers:
                 layer.visible = True
@@ -395,23 +437,70 @@ class App:
         self.map_layers['map_arc'].data = self.df_arc[filter_pos]
 
         r = pdk.Deck(
-            layers=list(self.map_layers.values()),
+            layers=[self.map_layers[k] for k in self.init_enable_layers],
+            # layers=list(self.map_layers.values()),
             initial_view_state=self.view_state,
             map_style='light'
         )
 
         return r.to_json()
 
-    def get_plot_data(self, year_range: tuple[int, int],
-                      countries: list[str]):
+    def get_collaborations_year(self, countries: list[str]):
+        if countries:
+            filtered_df = self.df_arc[self.df_arc['country1'].isin(countries) | self.df_arc['country2'].isin(countries)]
+        else:
+            filtered_df = self.df_arc
+
+        filtered_df = filtered_df.melt(
+            id_vars=['year', 'id'],
+            value_vars=['country1', 'country2'],
+            var_name='ct', value_name='country'
+        ).dropna().drop(columns=['ct'])
+
+        filtered_df = filtered_df.groupby('id').apply(
+            lambda x: x.drop_duplicates(subset=['country']),
+            include_groups=False
+        ).reset_index(drop=True)
+
+        df_count = filtered_df.groupby(['year', 'country']).size().reset_index(name='collaborations')
+        fig = px.area(df_count, x='year', y='collaborations',
+                      color='country', line_group='country')
+        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+
+        return fig
+
+    def get_publications_year(self, countries: list[str]):
         if countries:
             filtered_df = self.df_heatmap[self.df_heatmap['country'].isin(countries)]
         else:
             filtered_df = self.df_heatmap
 
-        gp = filtered_df.groupby(['year']).size().reset_index(name='collaborations')
-        fig = px.line(gp, x='year', y='collaborations', markers=True)
+        filtered_df = filtered_df[['id', 'year', 'country']]
+
+        filtered_df = filtered_df.groupby('id').apply(
+            lambda x: x.drop_duplicates(subset=['country']),
+            include_groups=False
+        ).reset_index(drop=True)
+
+        df_count = filtered_df.groupby(['year', 'country']).size().reset_index(name='publications')
+        fig = px.area(df_count, x='year', y='publications',
+                      color='country', line_group='country')
         fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+
+        return fig
+
+    def get_sunburst(self, year_range: tuple[int, int], countries: list[str]):
+        filter_pos = self.df_heatmap['year'].between(year_range[0], year_range[1])
+        if countries:
+            filter_pos = filter_pos & self.df_heatmap['country'].isin(countries)
+        filtered_df = self.df_heatmap[filter_pos]
+
+        filtered_df = filtered_df[['id', 'year', 'name', 'city', 'country']]
+        df_count = filtered_df.groupby(['country', 'city', 'name']).size().reset_index(name='publications')
+
+        fig = px.sunburst(df_count, path=['country', 'city', 'name'], values='publications')
+        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+
         return fig
 
     def start(self) -> None:

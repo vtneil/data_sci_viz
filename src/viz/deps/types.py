@@ -52,10 +52,15 @@ if __name__ == '__main__':
     # p1 = PaperFactory.from_json('../data/format.json')
     # pprint(p1)
     t = time.time()
-    p2 = PaperFactory.many_from_json('../data/papers.json', 10)
+    p2 = PaperFactory.many_from_json('../data/papers.json')
     print(time.time() - t)
 
-    print(len(p2))
-    s = sum(len(p['affiliations']) * (len(p['affiliations']) - 1) for p in p2)
-    print(s)
-    # pprint(p2)
+    d = {}
+
+    for p in p2:
+        y = p['publish_year']
+        if y not in d:
+            d[y] = 0
+        d[y] += 1
+
+    print(d)
