@@ -1,6 +1,8 @@
 import time
+from pprint import pprint
 from typing import TypedDict, List, AnyStr
 
+import pandas as pd
 import ujson as json
 
 from src.viz.deps.utils import benchmark
@@ -47,20 +49,31 @@ class PaperFactory:
         else:
             return raw['all_paper_with_loc'][:count]
 
+    @staticmethod
+    def entries_to_df(entries: PaperEntries) -> pd.DataFrame:
+        cv = pd.json_normalize(
+            entries,
+            record_path=['affiliations'],
+            meta=['SCOPUSID', 'title', 'publish_year', 'abbrevs', 'authors']
+        )[['SCOPUSID', 'title', 'publish_year', 'abbrevs', 'authors',
+           'name', 'city', 'country', 'location.lat', 'location.lng']].rename(
+            columns={
+                'SCOPUSID': 'id',
+                'publish_year': 'year',
+                'location.lat': 'lat',
+                'location.lng': 'lng'
+            }
+        ).dropna()
+
+        numeric_cols = ['year', 'lat', 'lng']
+
+        for col in numeric_cols:
+            cv[col] = pd.to_numeric(cv[col])
+
+        return cv
+
 
 if __name__ == '__main__':
-    # p1 = PaperFactory.from_json('../data/format.json')
-    # pprint(p1)
-    t = time.time()
-    p2 = PaperFactory.many_from_json('../data/papers.json')
-    print(time.time() - t)
+    df = PaperFactory.entries_to_df(PaperFactory.many_from_json('../data/papers.json'))
 
-    d = {}
-
-    for p in p2:
-        y = p['publish_year']
-        if y not in d:
-            d[y] = 0
-        d[y] += 1
-
-    print(d)
+    df.info()
