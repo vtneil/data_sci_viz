@@ -27,6 +27,7 @@ class Paper(TypedDict):
     abbrevs: List[AnyStr]
     authors: List[AnyStr]
     publish_year: AnyStr
+    cited_by: AnyStr
 
 
 PaperEntries = List[Paper]
@@ -44,28 +45,31 @@ class PaperFactory:
     def many_from_json(path: AnyStr, count: int = -1) -> PaperEntries:
         with open(path, mode='r', encoding='utf-8') as fro:
             raw = json.load(fro)
+
+        k = list(raw.keys())[0]
+
         if count < 0:
-            return raw['all_paper_with_loc']
+            return raw[k]
         else:
-            return raw['all_paper_with_loc'][:count]
+            return raw[k][:count]
 
     @staticmethod
     def entries_to_df(entries: PaperEntries) -> pd.DataFrame:
         cv = pd.json_normalize(
             entries,
             record_path=['affiliations'],
-            meta=['SCOPUSID', 'title', 'publish_year', 'abbrevs', 'authors']
+            meta=['SCOPUSID', 'title', 'publish_year', 'abbrevs', 'authors', 'cited_by']
         )[['SCOPUSID', 'title', 'publish_year', 'abbrevs', 'authors',
-           'name', 'city', 'country', 'location.lat', 'location.lng']].rename(
+           'name', 'city', 'country', 'location.lat', 'location.lng', 'cited_by']].rename(
             columns={
                 'SCOPUSID': 'id',
                 'publish_year': 'year',
                 'location.lat': 'lat',
-                'location.lng': 'lng'
+                'location.lng': 'lng',
             }
         ).dropna()
 
-        numeric_cols = ['year', 'lat', 'lng']
+        numeric_cols = ['year', 'lat', 'lng', 'cited_by']
 
         for col in numeric_cols:
             cv[col] = pd.to_numeric(cv[col])
@@ -74,6 +78,5 @@ class PaperFactory:
 
 
 if __name__ == '__main__':
-    df = PaperFactory.entries_to_df(PaperFactory.many_from_json('../data/papers.json'))
-
+    df = PaperFactory.entries_to_df(PaperFactory.many_from_json('../data/final_paper_format.json'))
     df.info()

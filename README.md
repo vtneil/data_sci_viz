@@ -10,5 +10,5 @@
 3. ✅ Publication count by institution (Can filter by research category, year and country)
 4. ✅ Publication count by year (Can filter by research category and country)
 5. ✅ Number of collaborations over time (Can filter by research category and country)
-6. ✍️ Author Participation by country
-7. ✍️ Author Leaderboard
+6. ✅ Citation distribution
+7. ✅ Author Publications Distribution

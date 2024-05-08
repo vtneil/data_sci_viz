@@ -1,4 +1,6 @@
 import itertools
+
+import numpy as np
 import pandas as pd
 import pydeck as pdk
 import plotly.express as px
@@ -27,7 +29,7 @@ MAPBOX_API_KEY = 'pk.eyJ1IjoibmVpbDQ4ODQiLCJhIjoiY2txZmZqbXk3MXR4aTJzcXRtanZvbmR
 GREEN_RGB = [0, 240, 100, 40]
 RED_RGB = [240, 100, 0, 40]
 
-SIDEBAR_SIZE = 24  # rem
+SIDEBAR_SIZE = 20  # rem
 
 SIDEBAR_STYLE = {
     'position': 'fixed',
@@ -74,6 +76,7 @@ class App:
         categories = set()
         flatten_rows = []
         heatmap_rows = []
+        author_rows = []
 
         row_titles = ['id', 'title', 'year']
 
@@ -83,12 +86,20 @@ class App:
             year = int(paper_entry['publish_year'])
             affiliations = paper_entry['affiliations']
             row_data = (sid, title, year)
+            cat = paper_entry['abbrevs']
 
             # Category
-            categories.update(paper_entry['abbrevs'])
+            if not cat or not paper_entry['cited_by']:
+                continue  # todo
+
+            categories.update(cat)
 
             # Flatten data
-            flatten_rows.append(row_data)
+            flatten_rows.append([
+                *row_data,
+                int(paper_entry['cited_by']),
+                tuple(cat),
+            ])
 
             # Heatmap data
             heatmap_rows.extend([
@@ -106,10 +117,22 @@ class App:
                 for aff in affiliations
             ])
 
+            num_coauthor = len(paper_entry['authors'])
+
+            author_rows.extend([
+                [
+                    *row_data,
+                    tuple(paper_entry['abbrevs']),
+                    auth,
+                    num_coauthor
+                ]
+                for auth in paper_entry['authors']
+            ])
+
         self.df_flatten = pd.DataFrame(
             flatten_rows,
-            columns=row_titles
-        ).set_index('id')
+            columns=[*row_titles, 'cited', 'categories']
+        ).dropna().set_index('id')
 
         self.df_heatmap = pd.DataFrame(
             heatmap_rows,
@@ -117,8 +140,13 @@ class App:
                      'lat', 'lng', 'weight', 'categories', 'authors']
         ).dropna()
 
+        self.df_author = pd.DataFrame(
+            author_rows,
+            columns=[*row_titles, 'categories', 'author', 'num_authors']
+        ).dropna()
+
         # Arc data
-        num_head = 20
+        num_head = 5
         grouped: pd.DataFrame = self.df_heatmap.groupby(['year', 'name']).size().reset_index(name='count')
         largest: pd.DataFrame = (
             grouped
@@ -360,6 +388,30 @@ class App:
                 }
             )
 
+        def histogram_container():
+            return html.Div(
+                dcc.Graph(id='citation-histogram',
+                          figure=self.get_cite_hist((a, b), []),
+                          style={
+                              'height': '100%'
+                          }),
+                style={
+                    'height': row_height
+                }
+            )
+
+        def heatmap_container():
+            return html.Div(
+                dcc.Graph(id='author-heatmap',
+                          figure=self.get_author_heat((a, b), []),
+                          style={
+                              'height': '100%'
+                          }),
+                style={
+                    'height': row_height
+                }
+            )
+
         sidebar = html.Div(
             [
                 html.H2('Data and Layers'),
@@ -419,15 +471,6 @@ class App:
                 dbc.Row([
                     dbc.Col(
                         dbc.Card([
-                            dbc.CardHeader(html.Strong('Country network')),
-                            dbc.CardBody([
-                                html.P('Shows only top if country filter is not selected'),
-                                network_country_container()
-                            ]),
-                        ]),
-                    ),
-                    dbc.Col(
-                        dbc.Card([
                             dbc.CardHeader(html.Strong('Number of publications over time')),
                             dbc.CardBody([
                                 html.P('Shows only top if country filter is not selected'),
@@ -441,6 +484,41 @@ class App:
                             dbc.CardBody([
                                 html.P('Always shows only top'),
                                 num_collab_year_container()
+                            ]),
+                        ]),
+                    ),
+                ]),
+                html.Br(),
+
+                # Row 3:
+                dbc.Row([
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Country network')),
+                            dbc.CardBody([
+                                html.P('Shows only top if country filter is not selected'),
+                                network_country_container()
+                            ]),
+                        ]),
+                    ),
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Citation distribution')),
+                            dbc.CardBody([
+                                html.P('Showing all by default.'),
+                                histogram_container()
+                            ]),
+                        ]),
+                    ),
+                ]),
+                html.Br(),
+                # Row 3:
+                dbc.Row([
+                    dbc.Col(
+                        dbc.Card([
+                            dbc.CardHeader(html.Strong('Author publications distribution')),
+                            dbc.CardBody([
+                                heatmap_container()
                             ]),
                         ]),
                     ),
@@ -473,6 +551,10 @@ class App:
                    component_property='figure'),
             Output(component_id='network-country',
                    component_property='figure'),
+            Output(component_id='citation-histogram',
+                   component_property='figure'),
+            Output(component_id='author-heatmap',
+                   component_property='figure'),
             Input(component_id='map-selector',
                   component_property='value'),
             Input(component_id='year-selector',
@@ -493,9 +575,11 @@ class App:
             publications_year = self.get_publications_year(countries, categories)
             sunburst = self.get_sunburst(year_range, countries, categories)
             network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
+            citation = self.get_cite_hist(year_range, categories)
+            author_hm = self.get_author_heat(year_range, categories)
 
             print('Data updated!')
-            return map_rendered, collaborations_year, publications_year, sunburst, network
+            return map_rendered, collaborations_year, publications_year, sunburst, network, citation, author_hm
 
     def get_render_map(self, layers: list[str],
                        year_range: tuple[int, int],
@@ -629,6 +713,9 @@ class App:
             if not (year_range[0] <= int(paper_entry['publish_year']) <= year_range[1]):
                 continue
 
+            if not paper_entry['abbrevs']:
+                continue
+
             aff_countries = list(set([aff['country'] for aff in paper_entry['affiliations']]))
 
             for i in range(len(aff_countries)):
@@ -708,6 +795,63 @@ class App:
                         )
         return fig
 
+    def get_author_heat(self, year_range: tuple[int, int],
+                        categories: list[str]):
+
+        filter_pos = self.df_author['year'].between(year_range[0], year_range[1])
+
+        if categories:
+            filter_pos = filter_pos & self.df_author['categories'].apply(
+                lambda x: any(item in categories for item in x)
+            )
+
+        filtered_df = self.df_author[filter_pos].reset_index(drop=True)
+
+        paper_count = filtered_df['author'].value_counts().reset_index()
+        paper_count.columns = ['author', 'publication_count']
+
+        grouped = filtered_df.groupby(['author', 'id']).first().reset_index()
+        avg_authors = grouped.groupby('author')['num_authors'].mean().reset_index()
+        avg_authors.columns = ['author', 'avg_num_authors']
+
+        author_info: pd.DataFrame = avg_authors.merge(paper_count, on='author').drop_duplicates()
+        author_info['publication_count'] = np.log10(author_info['publication_count'])
+        author_info['avg_num_authors'] = np.log10(author_info['avg_num_authors'])
+
+        fig = px.density_heatmap(author_info,
+                                 x='publication_count',
+                                 y='avg_num_authors',
+                                 marginal_x='histogram',
+                                 marginal_y='histogram',
+                                 nbinsx=20,
+                                 nbinsy=40)
+        fig.update_layout(xaxis_title='Publication Count per Author (log)',
+                          yaxis_title='Average Number of Authors per Paper Involved (log)',
+                          margin=dict(b=5, l=5, r=5, t=5))
+
+        return fig
+
+    def get_cite_hist(self, year_range: tuple[int, int],
+                      categories: list[str]):
+
+        filter_pos = self.df_flatten['year'].between(year_range[0], year_range[1])
+
+        if categories:
+            filter_pos = filter_pos & self.df_flatten['categories'].apply(
+                lambda x: any(item in categories for item in x)
+            )
+
+        filtered_df = self.df_flatten[filter_pos].reset_index(drop=True)
+
+        fig = px.histogram(filtered_df,
+                           x='cited',
+                           log_y=True,
+                           nbins=60)
+        fig.update_layout(xaxis_title='Cited count',
+                          margin=dict(b=5, l=5, r=5, t=5))
+
+        return fig
+
     def start(self) -> None:
         self.app.run(host='localhost',
                      port=8050,
@@ -724,5 +868,5 @@ class App:
 
 
 if __name__ == '__main__':
-    with App('./data/papers.json') as app:
+    with App('./data/final_paper_format.json') as app:
         app.start()
