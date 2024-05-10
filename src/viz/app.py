@@ -578,29 +578,12 @@ class App:
             print('Updating data...')
 
             self.map_rendered = self.get_render_map(selected_layers, year_range, countries, categories)
-
-            if self.first_time:
-                self.collaborations_year = self.get_collaborations_year(countries, categories)
-                self.publications_year = self.get_publications_year(countries, categories)
-                self.sunburst = self.get_sunburst(year_range, countries, categories)
-                self.network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
-                self.citation = self.get_cite_hist(year_range, categories)
-                self.author_hm = self.get_author_heat(year_range, categories)
-
-                self.first_time = False
-            else:
-                trigger = ctx.triggered_id
-                if trigger in ['counter-selector', 'category-selector']:
-                    self.collaborations_year = self.get_collaborations_year(countries, categories)
-                    self.publications_year = self.get_publications_year(countries, categories)
-                if trigger in ['year-selector', 'counter-selector', 'category-selector']:
-                    self.sunburst = self.get_sunburst(year_range, countries, categories)
-                    self.network = self.get_network_graph(
-                        self.update_country_network(year_range, countries, categories)
-                    )
-                if trigger in ['year-selector', 'category-selector']:
-                    self.citation = self.get_cite_hist(year_range, categories)
-                    self.author_hm = self.get_author_heat(year_range, categories)
+            self.collaborations_year = self.get_collaborations_year(countries, categories)
+            self.publications_year = self.get_publications_year(countries, categories)
+            self.sunburst = self.get_sunburst(year_range, countries, categories)
+            self.network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
+            self.citation = self.get_cite_hist(year_range, categories)
+            self.author_hm = self.get_author_heat(year_range, categories)
 
             print('Data updated!')
 
