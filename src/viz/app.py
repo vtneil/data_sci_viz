@@ -19,7 +19,7 @@ from viz.deps.utils import benchmark
 # App attributes
 APP_NAME = 'Scopus Visualization'
 APP_TITLE = 'Scopus Visualization (Chulalongkorn University)'
-USE_DEBUG = True
+USE_DEBUG = False
 
 # API key
 MAPBOX_API_KEY = 'pk.eyJ1IjoibmVpbDQ4ODQiLCJhIjoiY2txZmZqbXk3MXR4aTJzcXRtanZvbmRhYSJ9.XSlym9F6sbOtwX4P2r-vrw'
