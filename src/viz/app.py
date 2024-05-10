@@ -586,6 +586,8 @@ class App:
                 self.network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
                 self.citation = self.get_cite_hist(year_range, categories)
                 self.author_hm = self.get_author_heat(year_range, categories)
+
+                self.first_time = False
             else:
                 trigger = ctx.triggered_id
                 if trigger in ['counter-selector', 'category-selector']:
@@ -599,8 +601,6 @@ class App:
                 if trigger in ['year-selector', 'category-selector']:
                     self.citation = self.get_cite_hist(year_range, categories)
                     self.author_hm = self.get_author_heat(year_range, categories)
-
-                self.first_time = False
 
             print('Data updated!')
 
