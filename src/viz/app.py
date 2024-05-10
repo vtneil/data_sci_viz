@@ -10,7 +10,7 @@ import dash_deck
 import dash_bootstrap_components as dbc
 import networkx as nx
 
-from dash import html, dcc, Input, Output
+from dash import html, dcc, Input, Output, ctx
 from pydeck.types import String as PdkString
 
 from viz.deps.types import Paper, PaperFactory
@@ -19,7 +19,7 @@ from viz.deps.utils import benchmark
 # App attributes
 APP_NAME = 'Scopus Visualization'
 APP_TITLE = 'Scopus Visualization (Chulalongkorn University)'
-USE_DEBUG = False
+USE_DEBUG = True
 
 # API key
 MAPBOX_API_KEY = 'pk.eyJ1IjoibmVpbDQ4ODQiLCJhIjoiY2txZmZqbXk3MXR4aTJzcXRtanZvbmRhYSJ9.XSlym9F6sbOtwX4P2r-vrw'
@@ -58,6 +58,8 @@ class App:
     )
 
     def __init__(self, path: str) -> None:
+        self.first_time = True
+
         print('Setting up data...')
         self.raw_data = PaperFactory.many_from_json(path)
         self.__setup_data()
@@ -448,7 +450,7 @@ class App:
                             dbc.CardBody([
                                 html.P('Heatmap: by filter, Arc Plot: top and filtered top'),
                                 html.P('Red: source, Green: target'),
-                                map_container()
+                                dcc.Loading(map_container())
                             ]),
                         ]),
                     ),
@@ -458,7 +460,7 @@ class App:
                             dbc.CardBody([
                                 html.P('Shows only top if country filter is not selected'),
                                 html.P('This is a sunburst graph.'),
-                                sunburst_container()
+                                dcc.Loading(sunburst_container())
                             ]),
                         ]),
                         width=4
@@ -473,7 +475,7 @@ class App:
                             dbc.CardHeader(html.Strong('Number of publications over time')),
                             dbc.CardBody([
                                 html.P('Shows only top if country filter is not selected'),
-                                num_pub_year_container()
+                                dcc.Loading(num_pub_year_container())
                             ]),
                         ]),
                     ),
@@ -482,7 +484,7 @@ class App:
                             dbc.CardHeader(html.Strong('Number of international collaborations over time')),
                             dbc.CardBody([
                                 html.P('Always shows only top'),
-                                num_collab_year_container()
+                                dcc.Loading(num_collab_year_container())
                             ]),
                         ]),
                     ),
@@ -496,7 +498,7 @@ class App:
                             dbc.CardHeader(html.Strong('Country network')),
                             dbc.CardBody([
                                 html.P('Shows only top if country filter is not selected'),
-                                network_country_container()
+                                dcc.Loading(network_country_container())
                             ]),
                         ]),
                     ),
@@ -505,7 +507,7 @@ class App:
                             dbc.CardHeader(html.Strong('Citation distribution')),
                             dbc.CardBody([
                                 html.P('Showing all by default.'),
-                                histogram_container()
+                                dcc.Loading(histogram_container())
                             ]),
                         ]),
                     ),
@@ -517,7 +519,7 @@ class App:
                         dbc.Card([
                             dbc.CardHeader(html.Strong('Author publications distribution')),
                             dbc.CardBody([
-                                heatmap_container()
+                                dcc.Loading(heatmap_container())
                             ]),
                         ]),
                     ),
@@ -532,10 +534,16 @@ class App:
             }
         )
 
-        self.app.layout = html.Div([
-            sidebar,
-            content
-        ])
+        self.sidebar = sidebar
+        self.content = content
+
+        self.app.layout = html.Div(
+            id='main-content',
+            children=[
+                self.sidebar,
+                self.content
+            ]
+        )
 
     @benchmark
     def __setup_callbacks(self) -> None:
@@ -569,16 +577,35 @@ class App:
                         categories: list[str]):
             print('Updating data...')
 
-            map_rendered = self.get_render_map(selected_layers, year_range, countries, categories)
-            collaborations_year = self.get_collaborations_year(countries, categories)
-            publications_year = self.get_publications_year(countries, categories)
-            sunburst = self.get_sunburst(year_range, countries, categories)
-            network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
-            citation = self.get_cite_hist(year_range, categories)
-            author_hm = self.get_author_heat(year_range, categories)
+            self.map_rendered = self.get_render_map(selected_layers, year_range, countries, categories)
+
+            if self.first_time:
+                self.collaborations_year = self.get_collaborations_year(countries, categories)
+                self.publications_year = self.get_publications_year(countries, categories)
+                self.sunburst = self.get_sunburst(year_range, countries, categories)
+                self.network = self.get_network_graph(self.update_country_network(year_range, countries, categories))
+                self.citation = self.get_cite_hist(year_range, categories)
+                self.author_hm = self.get_author_heat(year_range, categories)
+            else:
+                trigger = ctx.triggered_id
+                if trigger in ['counter-selector', 'category-selector']:
+                    self.collaborations_year = self.get_collaborations_year(countries, categories)
+                    self.publications_year = self.get_publications_year(countries, categories)
+                if trigger in ['year-selector', 'counter-selector', 'category-selector']:
+                    self.sunburst = self.get_sunburst(year_range, countries, categories)
+                    self.network = self.get_network_graph(
+                        self.update_country_network(year_range, countries, categories)
+                    )
+                if trigger in ['year-selector', 'category-selector']:
+                    self.citation = self.get_cite_hist(year_range, categories)
+                    self.author_hm = self.get_author_heat(year_range, categories)
+
+                self.first_time = False
 
             print('Data updated!')
-            return map_rendered, collaborations_year, publications_year, sunburst, network, citation, author_hm
+
+            return (self.map_rendered, self.collaborations_year, self.publications_year,
+                    self.sunburst, self.network, self.citation, self.author_hm)
 
     def get_render_map(self, layers: list[str],
                        year_range: tuple[int, int],
