@@ -1,4 +1,4 @@
-from src.viz.main import main
+from viz.main import main
 
 __all__ = [
     'main'

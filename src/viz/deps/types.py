@@ -5,7 +5,7 @@ from typing import TypedDict, List, AnyStr
 import pandas as pd
 import ujson as json
 
-from src.viz.deps.utils import benchmark
+from viz.deps.utils import benchmark
 
 
 class Location(TypedDict):

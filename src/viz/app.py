@@ -1,4 +1,4 @@
-import itertools
+import sys
 
 import numpy as np
 import pandas as pd
@@ -11,16 +11,15 @@ import dash_bootstrap_components as dbc
 import networkx as nx
 
 from dash import html, dcc, Input, Output
-from matplotlib import pyplot as plt
 from pydeck.types import String as PdkString
 
-from src.viz.deps.types import Paper, PaperFactory
-from src.viz.deps.utils import benchmark
+from viz.deps.types import Paper, PaperFactory
+from viz.deps.utils import benchmark
 
 # App attributes
 APP_NAME = 'Scopus Visualization'
 APP_TITLE = 'Scopus Visualization (Chulalongkorn University)'
-USE_DEBUG = True
+USE_DEBUG = False
 
 # API key
 MAPBOX_API_KEY = 'pk.eyJ1IjoibmVpbDQ4ODQiLCJhIjoiY2txZmZqbXk3MXR4aTJzcXRtanZvbmRhYSJ9.XSlym9F6sbOtwX4P2r-vrw'
@@ -855,7 +854,8 @@ class App:
     def start(self) -> None:
         self.app.run(host='localhost',
                      port=8050,
-                     debug=USE_DEBUG)
+                     debug=USE_DEBUG,
+                     use_reloader=USE_DEBUG)
 
     def stop(self) -> None:
         pass
